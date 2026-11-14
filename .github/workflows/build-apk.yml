@@ -1,0 +1,60 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Locate project (unzips a ZIP uploaded to the repo root if needed)
+        run: |
+          if [ -f settings.gradle.kts ]; then
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+          else
+            z=$(ls *.zip | head -1)
+            mkdir -p _src && unzip -q "$z" -d _src
+            d=$(dirname "$(find _src -name settings.gradle.kts | head -1)")
+            echo "PROJECT_DIR=$d" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug + release APKs
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug assembleRelease --stacktrace
+
+      - name: Rename APKs
+        run: |
+          mkdir -p out
+          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" out/100-Se-Bachao-debug.apk
+          cp "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk" out/100-Se-Bachao-release.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 100-Se-Bachao-APKs
+          path: out/*.apk
+
+      - name: Publish as GitHub Release (easy phone download)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: 100 Se Bachao! build ${{ github.run_number }}
+          files: out/*.apk
